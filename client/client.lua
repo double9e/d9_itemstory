@@ -26,10 +26,9 @@ Citizen.CreateThread(function()
 		Citizen.Wait(0)
 	end
 	Citizen.Wait(1000)
-	while ESX.GetPlayerData().job == nil do
+	while ESX.IsPlayerLoaded() == nil do
 		Citizen.Wait(100)
 	end
-	ESX.PlayerData = ESX.GetPlayerData()
 	model:init()
 end)
 
@@ -38,7 +37,7 @@ function model:init()
 		self.IsDead = true
 	end)
 
-	AddEventHandler("playerSpawned", function()
+	AddEventHandler("esx:onPlayerSpawn", function()
 		self.IsDead = false
 	end)
 
@@ -247,7 +246,8 @@ function model:init()
 				end
 				Citizen.Wait(900)
 				if not cancle then
-					TaskPlayAnim(PlayerPedId(), xData.Anim.Dict, xData.Anim.Name, 8.0, -8.0, -1, 0, 0, false, false, false)
+					model:PlayerAnim(xData.Anim.Dict, xData.Anim.Name, xData.Anim.Flag)
+					-- TaskPlayAnim(PlayerPedId(), xData.Anim.Dict, xData.Anim.Name, 8.0, -8.0, -1, 0, 0, false, false, false)
 				end
 			end
 		end
