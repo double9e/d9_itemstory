@@ -1,257 +1,208 @@
 ESX = exports["es_extended"]:getSharedObject()
-local ResourceName = GetCurrentResourceName()
 
-GetName = function(a, b)
-	return string.format("%s:%s:%s", ResourceName, a, b)
+core.loaded.AwaitPlayerLoaded(function()
+    model:init()
+end, CreateThread)
+
+function model:UsePainkiller(item)
+    if not self:CanUseItem(item, Config.Painkiller) then
+        return false
+    end
+
+    local xData = Config.Painkiller[item]
+
+    local playerPed = PlayerPedId()
+    if xData.InVehicle and IsPedInAnyVehicle(playerPed, true) then
+        return false
+    end
+    if self.status.painkiller then
+        return false
+    end
+    if not self:CheckJob(xData.Job) then
+        return false
+    end
+
+    log("Painkiller used:", item)
+    self.caches.painkiller = xData
+    self.status.painkiller = true
+
+    if xData.Anim then
+        self:PlayerAnim(xData.Anim.Dict, xData.Anim.Name, xData.Anim.Flag)
+    end
+
+    Wait(xData.Time)
+
+    playerPed = PlayerPedId()
+    if not self.status.aed and xData.Anim then
+        StopAnimTask(playerPed, xData.Anim.Dict, xData.Anim.Name, 6.0)
+    end
+
+    if not self.IsDead and xData.Health then
+        SetEntityHealth(playerPed, GetEntityHealth(playerPed) + xData.Health)
+    end
+
+    self:ClearUse("painkiller")
+    return true
 end
 
-RegisEvent = function(n, h)
-	return RegisterNetEvent(n), AddEventHandler(n, h)
+function model:UseArmor(item)
+    if not self:CanUseItem(item, Config.Armor) then
+        return false
+    end
+
+    local xData = Config.Armor[item]
+
+    local playerPed = PlayerPedId()
+    if xData.InVehicle and IsPedInAnyVehicle(playerPed, true) then
+        return false
+    end
+    if self.status.armor then
+        return false
+    end
+    if not self:CheckJob(xData.Job) then
+        return false
+    end
+
+    log("Armor used:", item)
+    self.caches.armor = xData
+    self.status.armor = true
+
+    if xData.Anim then
+        self:PlayerAnim(xData.Anim.Dict, xData.Anim.Name, xData.Anim.Flag)
+    end
+
+    Wait(xData.Time)
+
+    playerPed = PlayerPedId()
+    if not self.status.aed and xData.Anim then
+        StopAnimTask(playerPed, xData.Anim.Dict, xData.Anim.Name, 6.0)
+    end
+
+    if not self.IsDead and xData.Armor then
+        AddArmourToPed(playerPed, xData.Armor)
+    end
+
+    self:ClearUse("armor")
+    return true
 end
 
-ispressed = function(input, key)
-	return IsControlPressed(input, key) or IsDisabledControlPressed(input, key)
+function model:UseAed(item)
+    if not self:CanUseItem(item, Config.Aed) then
+        return false
+    end
+
+    if self.Cooldown.aed or self.status.aed then
+        return false
+    end
+
+    local xData = Config.Aed[item]
+
+    local playerPed = PlayerPedId()
+    if xData.InVehicle and IsPedInAnyVehicle(playerPed, true) then
+        return false
+    end
+    if not self:CheckJob(xData.Job) then
+        return false
+    end
+
+    local sid, isDead, closestPlayer = self:GetNearbyPlayer(2.0)
+    if not isDead or closestPlayer == -1 or not sid then
+        return false
+    end
+
+    log("Aed used:", item)
+    self.caches.aed = xData
+    self.status.aed = true
+    self.Cooldown.aed = true
+
+    if xData.Marker then
+        local closestPlayerPed = GetPlayerPed(closestPlayer)
+        local marker = xData.Marker
+        CreateThread(function()
+            while self.status.aed do
+                if DoesEntityExist(closestPlayerPed) then
+                    local coords = GetEntityCoords(closestPlayerPed)
+                    DrawMarker(
+                        marker.Type,
+                        coords.x,
+                        coords.y,
+                        coords.z + 0.5,
+                        0.0,
+                        0.0,
+                        0.0,
+                        marker.rot.x,
+                        marker.rot.y,
+                        marker.rot.z,
+                        marker.Scale.x,
+                        marker.Scale.y,
+                        marker.Scale.z,
+                        marker.Color.r,
+                        marker.Color.g,
+                        marker.Color.b,
+                        marker.Color.a,
+                        false,
+                        true,
+                        2,
+                        false,
+                        nil,
+                        nil,
+                        false
+                    )
+                end
+                Wait(0)
+            end
+        end)
+    end
+
+    local anim = xData.Anim
+    local completed = lib.progressBar({
+        duration = xData.Time,
+        label = "AED",
+        useWhileDead = false,
+        canCancel = true,
+        disable = {
+            move = false,
+            car = false,
+            combat = false,
+        },
+        anim = anim and {
+            dict = anim.Dict,
+            clip = anim.Name,
+            flag = anim.Flag or 1,
+        } or nil,
+    })
+
+    playerPed = PlayerPedId()
+    local ok = false
+    if completed and not IsEntityDead(playerPed) and self.status.aed then
+        if not IsPedInAnyVehicle(playerPed, true) then
+            TriggerServerEvent(GetName("server", "reviveTarget"), item, sid)
+            log("AED completed")
+            ok = true
+        end
+    elseif anim then
+        StopAnimTask(playerPed, anim.Dict, anim.Name, 6.0)
+        ClearPedTasks(playerPed)
+    end
+
+    self:ClearUse("aed")
+    SetTimeout(500, function()
+        self.Cooldown.aed = false
+    end)
+    return ok
 end
-
-Eventnui = function(event, data)
-	SendNUIMessage({
-		event = event,
-		data = data,
-	})
-end
-
-
-Citizen.CreateThread(function()
-	while NetworkIsPlayerActive(PlayerId()) ~= 1 do
-		Citizen.Wait(0)
-	end
-	Citizen.Wait(1000)
-	while ESX.IsPlayerLoaded() == nil do
-		Citizen.Wait(100)
-	end
-	model:init()
-end)
 
 function model:init()
-	AddEventHandler("esx:onPlayerDeath", function(data)
-		self.IsDead = true
-	end)
+    self:RegisterCoreUseItems()
+    self:BindServerUseEvents()
 
-	AddEventHandler("esx:onPlayerSpawn", function()
-		self.IsDead = false
-	end)
+    AddEventHandler("esx:onPlayerDeath", function()
+        self.IsDead = true
+        core.disableUseItem()
+    end)
 
-	RegisEvent(GetName('cl', 'Painkiller'), function(item)
-		log('Painkiller used: ' .. item)
-		local PlayerPed = PlayerPedId()
-		if not Config.Painkiller[item] then
-			log("Painkiller item not found: " .. item)
-		end
-
-		local xData = Config.Painkiller[item]
-
-		if xData.InVehicle and IsPedInAnyVehicle(PlayerPed, true) then
-			return
-		end
-
-		if self.status.painkiller then
-			log("Already using painkiller")
-			return
-		end
-
-		if not model:CheckJob(xData.Job) then
-			log("Job not allowed to use painkiller")
-			return
-		end
-
-		if xData.Remove then
-			TriggerServerEvent(GetName('sv','removeItem'), item)
-		end
-
-		self.caches.painkiller = xData
-		self.status.painkiller = true
-		if xData.Anim then
-			model:PlayerAnim(xData.Anim.Dict, xData.Anim.Name, xData.Anim.Flag)
-		end
-		Citizen.Wait(xData.Time)
-		if not self.status.aed and xData.Anim then
-			StopAnimTask(PlayerPed, xData.Anim.Dict, xData.Anim.Name, 6.0)
-		end
-		if not self.IsDead then
-			SetEntityHealth(Ped, GetEntityHealth(PlayerPedId()) + xData.Health)
-			self.status.painkiller = false
-			self.caches.painkiller = {}
-		end
-
-	end)
-
-	RegisEvent(GetName('cl', 'Armor'), function(item)
-		log('Armor used: ' .. item)
-		local PlayerPed = PlayerPedId()
-		if not Config.Armor[item] then
-			log("Armor item not found: " .. item)
-		end
-
-		local xData = Config.Armor[item]
-
-		if xData.InVehicle and IsPedInAnyVehicle(PlayerPed, true) then
-			return
-		end
-
-		if self.status.armor then
-			log("Already using Armor")
-			return
-		end
-
-		if not model:CheckJob(xData.Job) then
-			log("Job not allowed to use Armor")
-			return
-		end
-
-		if xData.Remove then
-			TriggerServerEvent(GetName('sv','removeItem'), item)
-		end
-
-		self.caches.armor = xData
-		self.status.armor = true
-		if xData.Anim then
-			model:PlayerAnim(xData.Anim.Dict, xData.Anim.Name, xData.Anim.Flag)
-		end
-		Citizen.Wait(xData.Time)
-		if not self.status.aed and xData.Anim then
-			StopAnimTask(PlayerPed, xData.Anim.Dict, xData.Anim.Name, 6.0)
-		end
-		if not self.IsDead then
-			AddArmourToPed(PlayerPedId(), xData.Armor)
-			self.status.armor = false
-			self.caches.armor = {}
-		end
-
-	end)
-
-	RegisEvent(GetName('cl', 'Aed'), function(item)
-		log("Aed used: " .. item)
-
-		if self.Cooldown.aed then
-			log("Aed is on cooldown")
-			return
-		end
-
-		local PlayerPed = PlayerPedId()
-		if not Config.Aed[item] then
-			log("Aed item not found: " .. item)
-		end
-
-		local xData = Config.Aed[item]
-
-		if xData.InVehicle and IsPedInAnyVehicle(PlayerPed, true) then
-			return
-		end
-
-		if self.status.aed then
-			log("Already using Aed")
-			return
-		end
-
-		if not model:CheckJob(xData.Job) then
-			log("Job not allowed to use Aed")
-			return
-		end
-
-
-		local sid, isDead, closestPlayer = model:GetNearbyPlayer(2.0)
-		if not isDead or closestPlayer == -1 then
-			return
-		end
-
-		
-		self.caches.aed = xData
-		self.status.aed = true
-		self.Cooldown.aed = true
-
-		if xData.Marker then
-			local closestPlayerPed = GetPlayerPed(closestPlayer)
-			Citizen.CreateThread(function()
-				while self.status.aed do
-					local coords = GetEntityCoords(closestPlayerPed)
-					DrawMarker(
-						xData.Marker.Type, coords.x, coords.y, coords.z + 0.5,
-						0.0, 0.0, 0.0,
-						xData.Marker.rot.x, xData.Marker.rot.y, xData.Marker.rot.z,
-						xData.Marker.Scale.x, xData.Marker.Scale.y, xData.Marker.Scale.z,
-						xData.Marker.Color.r, xData.Marker.Color.g, xData.Marker.Color.b, xData.Marker.Color.a,
-						false, true, 2, false, nil, nil, false
-					)
-					Citizen.Wait(1)
-				end
-			end)
-		end
-
-
-		if xData.Anim then
-			local cancle = false
-
-			TriggerEvent("mythic_progbar:client:progress", {
-				name = 'AED',
-				duration = xData.Time,
-				label = 'AED',
-				useWhileDead = false,
-				canCancel = true,
-				controlDisables = {
-					disableMovement = false,
-					disableCarMovement = false,
-					disableMouse = false,
-					disableCombat = false,
-				},
-			}, function(status)
-				if not status and not IsEntityDead(PlayerPedId()) then 
-					ClearPedTasks(PlayerPed)
-					log('status:', status, 'for AED')
-					if not self.status.aed then
-						log("AED already cancelled")
-						return
-					end
-					if IsPedInAnyVehicle(PlayerPed, true) then
-						log("AED animation started")
-						return
-					end
-					if xData.Remove then
-						TriggerServerEvent(GetName("sv", "removeItem"), item)
-					end
-					TriggerServerEvent(GetName('sv', 'ReviveTarget'), item, sid)
-					log("AED animation completed")
-					self.status.aed = false
-					self.caches.aed = {}
-				else
-					cancle = true
-					self.status.aed = false
-					self.caches.aed = {}
-					-- ClearPedTasks(PlayerPed)
-					StopAnimTask(PlayerPed, xData.Anim.Dict, xData.Anim.Name, 6.0)
-
-				end
-				self.status.aed = false
-				self.caches.aed = {}
-				SetTimeout(500, function()
-					self.Cooldown.aed = false
-				end)
-			end)
-			model:PlayerAnim(xData.Anim.Dict, xData.Anim.Name, xData.Anim.Flag)
-			for i = 1, xData.Time/1000, 0.9 do
-				log('AED animation loop:', i)
-				if cancle then
-					StopAnimTask(PlayerPed, xData.Anim.Dict, xData.Anim.Name, 6.0)
-					ClearPedTasks(PlayerPed)
-					break
-				end
-				Citizen.Wait(900)
-				if not cancle then
-					model:PlayerAnim(xData.Anim.Dict, xData.Anim.Name, xData.Anim.Flag)
-					-- TaskPlayAnim(PlayerPedId(), xData.Anim.Dict, xData.Anim.Name, 8.0, -8.0, -1, 0, 0, false, false, false)
-				end
-			end
-		end
-
-
-	end)
+    AddEventHandler("esx:onPlayerSpawn", function()
+        self.IsDead = false
+        core.enableUseItem()
+    end)
 end

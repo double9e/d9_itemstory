@@ -1,56 +1,66 @@
-local ResourceName = GetCurrentResourceName()
 ESX = exports["es_extended"]:getSharedObject()
 
-GetName = function(a, b)
-    return string.format("%s:%s:%s", ResourceName, a, b)
-end
-
-RegisEvent = function(n, h)
-    return RegisterNetEvent(n), AddEventHandler(n, h)
-end
-
-Citizen.CreateThread(function()
+CreateThread(function()
     model:Init()
 end)
 
 function model:Init()
-    for k, v in pairs(Config.Painkiller) do
-        ESX.RegisterUsableItem(k, function(source)
-            TriggerClientEvent(GetName('cl','Painkiller'), source, k)
-        end)
-    end
+    -- self:RegisterUsableItems(Config.Painkiller, GetName("client", "painkiller"), "painkiller", true)
+    -- self:RegisterUsableItems(Config.Armor, GetName("client", "armor"), "armor", true)
+    -- self:RegisterUsableItems(Config.Aed, GetName("client", "aed"), "aed_use", false)
 
-    for k, v in pairs(Config.Armor) do
-        ESX.RegisterUsableItem(k, function(source)
-            TriggerClientEvent(GetName('cl','Armor'), source, k)
-        end)
-    end
+    RegisEvent(GetName("server", "reviveTarget"), function(item, target)
+        local source = source
+        if source <= 0 or source == 65535 then
+            return
+        end
+        if self:IsThrottled(source, "aed_revive", 1000) then
+            return
+        end
 
-    for k, v in pairs(Config.Aed) do
-        ESX.RegisterUsableItem(k, function(source)
-            TriggerClientEvent(GetName('cl','Aed'), source, k)
-        end)
-    end
+        if type(item) ~= "string" or item == "" or #item > 64 then
+            return
+        end
 
-    RegisEvent(GetName('sv', 'removeItem'), function(item)
-        if not item then return end
-        local xPlayer = ESX.GetPlayerFromId(source)
-        if not xPlayer then return end
-        xPlayer.removeInventoryItem(item, 1)
-    end)
+        target = tonumber(target)
+        if not target or target ~= target then
+            return
+        end
 
-    RegisEvent(GetName('sv', 'ReviveTarget'), function(item, Target)
-        log("ReviveTarget", item, Target)
-        if not item or not Target then return end
-        local xPlayer = ESX.GetPlayerFromId(source)
-        if not xPlayer then return end
+        target = math.floor(target)
+        if target <= 0 or target == source then
+            return
+        end
+        if not GetPlayerName(target) then
+            return
+        end
 
         local xData = Config.Aed[item]
         if not xData then
-            print(("Aed item not found: %s"):format(item))
             return
         end
-        xData.ReviveFunction(Target)
-    end)
 
+        local xPlayer = ESX.GetPlayerFromId(source)
+        if not xPlayer then
+            return
+        end
+        if not self:HasJob(xPlayer, xData.Job) then
+            return
+        end
+        if not self:HasItem(xPlayer, item) then
+            return
+        end
+        if not self:DistanceOk(source, target, 3.0) then
+            return
+        end
+
+        if xData.Remove then
+            xPlayer.removeInventoryItem(item, 1)
+        end
+
+        log("ReviveTarget", item, target)
+        if xData.ReviveFunction then
+            xData.ReviveFunction(target)
+        end
+    end)
 end
