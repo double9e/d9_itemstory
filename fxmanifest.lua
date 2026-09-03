@@ -21,6 +21,7 @@ shared_script {
 }
 
 client_scripts {
+    'client/dead.lua',
     'client/function.lua',
     'client/client.lua',
 }
